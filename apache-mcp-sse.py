@@ -2,6 +2,8 @@
 import asyncio
 import json
 import subprocess
+import os
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 from datetime import datetime
@@ -17,6 +19,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import Response, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 import uvicorn
 
@@ -24,11 +27,56 @@ import uvicorn
 SITES_AVAILABLE = "/etc/apache2/sites-available"
 SITES_ENABLED = "/etc/apache2/sites-enabled"
 
+# API Key Authentication
+API_KEY = os.getenv("MCP_API_KEY", "")
+API_KEY_HEADER = "X-API-Key"
+
+# Generate a secure API key if not set
+if not API_KEY:
+    API_KEY = secrets.token_urlsafe(32)
+    print(f"\nNo MCP_API_KEY environment variable set!")
+    print(f"Generated API Key: {API_KEY}")
+    print(f"Set it permanently: export MCP_API_KEY='{API_KEY}'\n")
+
 # Create MCP server
 mcp_server = Server("apache-manager")
 
 # Store SSE transport instance
 sse_transport = None
+
+
+class APIKeyAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to validate API key for all requests except health check."""
+    
+    async def dispatch(self, request, call_next):
+        # Skip authentication for health check and root info
+        if request.url.path in ["/health", "/"]:
+            return await call_next(request)
+        
+        # Check for API key in header
+        provided_key = request.headers.get(API_KEY_HEADER)
+        
+        if not provided_key:
+            return JSONResponse(
+                {
+                    "error": "Authentication required",
+                    "message": f"Missing {API_KEY_HEADER} header"
+                },
+                status_code=401
+            )
+        
+        if provided_key != API_KEY:
+            return JSONResponse(
+                {
+                    "error": "Authentication failed",
+                    "message": "Invalid API key"
+                },
+                status_code=403
+            )
+        
+        # API key is valid, proceed with request
+        response = await call_next(request)
+        return response
 
 
 def run_command(cmd: list[str]) -> tuple[bool, str, str]:
@@ -453,7 +501,8 @@ async def health_check(request: Request):
         "status": "healthy",
         "service": "apache-mcp-server",
         "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "authentication": "enabled"
     })
 
 
@@ -463,6 +512,11 @@ async def server_info(request: Request):
         "name": "Apache Management MCP Server",
         "version": "1.0.0",
         "transport": "SSE",
+        "authentication": {
+            "enabled": True,
+            "method": "API Key",
+            "header": API_KEY_HEADER
+        },
         "endpoints": {
             "sse": "/sse",
             "messages": "/messages",
@@ -481,6 +535,9 @@ app = Starlette(
         Route("/messages", handle_messages, methods=["POST"]),
     ]
 )
+
+# Add authentication middleware FIRST (before CORS)
+app.add_middleware(APIKeyAuthMiddleware)
 
 # Add CORS middleware for remote access
 app.add_middleware(
@@ -503,10 +560,15 @@ if __name__ == "__main__":
     print(f"Messages Endpoint: http://0.0.0.0:8000/messages")
     print(f"Health Check: http://0.0.0.0:8000/health")
     print("=" * 60)
+    print(f"\n Authentication: ENABLED")
+    print(f"API Key: {API_KEY}")
+    print(f"Header Required: {API_KEY_HEADER}: <your-api-key>")
+    print("=" * 60)
     print("\nTo connect with MCP Inspector:")
-    print("   npx @modelcontextprotocol/inspector http://YOUR_SERVER_IP:8000/sse")
-    print("\nSecurity Note: This server accepts connections from anywhere.")
-    print("   Consider adding authentication in production!\n")
+    print(f"   npx @modelcontextprotocol/inspector http://YOUR_SERVER_IP:8000/sse")
+    print(f"\n Set API key permanently:")
+    print(f"   export MCP_API_KEY='{API_KEY}'")
+    print(f"   python {sys.argv[0]}\n")
     
     uvicorn.run(
         app,
