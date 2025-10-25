@@ -1,0 +1,53 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Environment / secrets
+.env
+.env.*
+secrets.json
+*.pem
+*.key
+
+# Logs / runtime files
+*.log
+*.pid
+*.sock
+*.sqlite3
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# Uvicorn / Gunicorn sockets/pids
+gunicorn.pid
+gunicorn.socket
+
+# Local OS files
+*.swp
+*.bak
